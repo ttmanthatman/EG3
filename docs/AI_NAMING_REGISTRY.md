@@ -43,21 +43,21 @@
 
 | 模块 | 路径 | 责任 | 输入 | 输出 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| Core Types | `src/core/types.py` | 定义 concern, relationship, memory, event, trace 等类型 | 无 | Python 类型/Pydantic models | **待实现** |
-| Seed State | `src/data/seed_state.py` | 提供首个 persona (林安) 的初始状态 | 无 | `CharacterState` | **待实现** |
-| Appraisal | `src/pipeline/appraisal.py` | 判断事件触发了哪些 concern | Event, CharacterState | AppraisalResult | **待实现** |
-| Memory Retrieval | `src/pipeline/memory_retrieval.py` | 通过 LLM 判断哪些记忆会浮现 | event, appraisal, state | MemoryRecallResult | **待实现** |
-| Response Decision | `src/pipeline/response_decision.py` | 判断是否回应和回应姿态 | appraisal, recall, state | ResponseDecision | **待实现** |
-| Prompt Generator | `src/pipeline/prompt_generator.py` | 将认知模块输出转成自然语言回复上下文 | event, state, appraisal, recall, decision | ExpressionContext | **待实现** |
-| Reply LLM | `src/pipeline/reply_llm.py` | 调用 Reply LLM，只生成角色台词 | ExpressionContext | ReplyOutput | **待实现** |
-| State Updater | `src/pipeline/state_updater.py` | 判断并写回状态和记忆变化 | state, event, reply, context | next_state, StateDelta | **待实现** |
-| Pipeline Orchestrator | `src/pipeline/orchestrator.py` | LangGraph 编排整个同步响应路径 | content, state | next_state, trace | **待实现** |
-| Memory Consolidator | `src/background/memory_consolidator.py` | 短期→中期→长期记忆摘要 | 短期记忆 | 中期/长期记忆 | **待实现（Phase 6）** |
-| Concern Decay | `src/background/concern_decay.py` | 未触发的关切强度缓慢衰减 | concerns | 更新后的 concerns | **待实现（Phase 6）** |
-| Internal Monologue | `src/background/internal_monologue.py` | persona 的内心活动 | 当前状态 | 新的长期记忆 | **待实现（Phase 6）** |
-| Proactive Scheduler | `src/background/proactive_scheduler.py` | 决定 persona 何时主动开口 | 当前状态 | ProactiveTrigger | **待实现（Phase 6）** |
-| FastAPI Server | `src/server/main.py` | Web 后端 API + WebSocket | HTTP/WS 请求 | JSON/流式响应 | **待实现** |
-| React App | `src/ui/` | 三栏工作台 UI（状态 / 聊天 / trace） | 用户输入 | UI | **待实现** |
+| Core Types | `src/core/types.py` | 定义 concern, relationship, memory, event, trace 等类型 | 无 | Python 类型/Pydantic models | ✅ implemented |
+| Seed State | `src/data/seed_state.py` | 提供首个 persona (林安) 的初始状态 | 无 | `CharacterState` | ✅ implemented |
+| Appraisal | `src/pipeline/appraisal.py` | 通过 DeepSeek LLM 判断事件触发了哪些 concern | Event, CharacterState | AppraisalResult | ✅ implemented |
+| Memory Retrieval | `src/pipeline/memory_retrieval.py` | 通过 DeepSeek LLM 判断哪些记忆会浮现 | event, appraisal, state | MemoryRecallResult | ✅ implemented |
+| Response Decision | `src/pipeline/response_decision.py` | 通过 DeepSeek LLM 判断是否回应和回应姿态 | appraisal, recall, state | ResponseDecision | ✅ implemented |
+| Prompt Generator | `src/pipeline/prompt_generator.py` | 将认知模块输出转成自然语言回复上下文 | event, state, appraisal, recall, decision | ExpressionContext | ✅ implemented |
+| Reply LLM | `src/pipeline/llm_client.py` | 调用 DeepSeek API，只生成角色台词（纯文本） | ExpressionContext | ReplyOutput | ✅ implemented |
+| State Updater | `src/pipeline/state_updater.py` | 通过 DeepSeek LLM 判断状态变化并确定性写回 | state, event, reply, context | next_state, StateDelta | ✅ implemented |
+| Pipeline Orchestrator | `src/pipeline/orchestrator.py` | 串联整个同步响应路径（6 步） | content, state | next_state, trace | ✅ implemented |
+| Memory Consolidator | `src/background/memory_consolidator.py` | 短期→中期→长期记忆摘要 | 短期记忆 | 中期/长期记忆 | ⏳ Phase 6 |
+| Concern Decay | `src/background/concern_decay.py` | 未触发的关切强度缓慢衰减 | concerns | 更新后的 concerns | ⏳ Phase 6 |
+| Internal Monologue | `src/background/internal_monologue.py` | persona 的内心活动 | 当前状态 | 新的长期记忆 | ⏳ Phase 6 |
+| Proactive Scheduler | `src/background/proactive_scheduler.py` | 决定 persona 何时主动开口 | 当前状态 | ProactiveTrigger | ⏳ Phase 6 |
+| FastAPI Server | `src/server/main.py` | WebSocket 后端：接收消息→运行 Pipeline→推送 trace | WebSocket | JSON trace | ✅ implemented |
+| Web UI | `static/index.html` | 单文件三栏工作台（状态/聊天/trace） | 用户输入 | UI | ✅ implemented |
 
 ## 外部服务登记表
 
@@ -65,4 +65,4 @@
 | --- | --- | --- | --- | --- |
 | GitHub | `github` | 代码远程同步和版本回溯 | 本机 GitHub CLI | - |
 | VPS | `production_vps` | MVP 部署 | 不写入仓库 | 只允许操作 `3.xiaogushi.us` |
-| LLM API | `llm_api` | 认知模块和回复生成 | 后端环境变量 `LLM_API_KEY` | 密钥不能出现在前端 |
+| LLM API | `deepseek_api` | 认知模块和回复生成（DeepSeek） | `DEEPSEEK_API_KEY`（.env，已 gitignore） | 密钥不能出现在前端或仓库 |
