@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Virtual Human Flow - 林安</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; height: 100vh; display: flex; flex-direction: column; }
+#app { display: flex; flex: 1; overflow: hidden; }
+
+/* Three panels */
+.panel { overflow-y: auto; padding: 16px; }
+#left-panel { width: 280px; background: #fff; border-right: 1px solid #e0e0e0; }
+#center-panel { flex: 1; display: flex; flex-direction: column; background: #fafafa; }
+#right-panel { width: 380px; background: #fff; border-left: 1px solid #e0e0e0; font-family: monospace; font-size: 12px; }
+
+/* Header */
+#header { background: #2c2c2c; color: #fff; padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+#header .status { font-size: 12px; opacity: 0.7; }
+#header button { background: #444; color: #fff; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+
+/* State panel */
+.state-section { margin-bottom: 16px; }
+.state-section h3 { font-size: 13px; color: #666; margin-bottom: 6px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+.state-item { font-size: 12px; margin: 4px 0; color: #333; }
+.state-item .label { color: #999; margin-right: 4px; }
+.concern-card { background: #f8f8f8; border-radius: 6px; padding: 8px; margin: 6px 0; font-size: 12px; }
+.concern-card .title { font-weight: 600; margin-bottom: 2px; }
+.concern-card .meta { color: #888; font-size: 11px; }
+.meter { display: inline-block; width: 60px; height: 6px; background: #eee; border-radius: 3px; vertical-align: middle; margin: 0 4px; }
+.meter-fill { height: 100%; border-radius: 3px; }
+.meter-fill.pos { background: #4caf50; }
+.meter-fill.neg { background: #e53935; }
+
+/* Chat */
+#messages { flex: 1; overflow-y: auto; padding: 16px; }
+.msg { margin-bottom: 12px; max-width: 80%; }
+.msg.user { margin-left: auto; }
+.msg.persona { margin-right: auto; }
+.msg .bubble { padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5; }
+.msg.user .bubble { background: #1976d2; color: #fff; }
+.msg.persona .bubble { background: #e8e8e8; color: #333; }
+.msg .name { font-size: 11px; color: #999; margin-bottom: 2px; }
+
+#input-area { padding: 12px 16px; background: #fff; border-top: 1px solid #e0e0e0; display: flex; gap: 8px; }
+#input-area input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
+#input-area input:focus { border-color: #1976d2; }
+#input-area button { padding: 10px 20px; background: #1976d2; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+#input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Trace panel */
+.trace-step { margin-bottom: 12px; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+.trace-step .step-header { background: #f5f5f5; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; }
+.trace-step .step-body { padding: 8px 10px; display: none; max-height: 300px; overflow-y: auto; }
+.trace-step.open .step-body { display: block; }
+.trace-step .step-body pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; background: #f9f9f9; padding: 6px; border-radius: 4px; margin: 4px 0; }
+.step-label { font-size: 11px; color: #666; margin-top: 4px; }
+.loading { color: #1976d2; font-size: 13px; padding: 10px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="header">
+  <span>🌊 Virtual Human Flow · 林安</span>
+  <span>
+    <span class="status" id="conn-status">连接中...</span>
+    <button onclick="resetState()">重置角色状态</button>
+  </span>
+</div>
+<div id="app">
+  <!-- Left: State -->
+  <div id="left-panel" class="panel"></div>
+  <!-- Center: Chat -->
+  <div id="center-panel">
+    <div id="messages">
+      <div style="text-align:center;color:#999;padding:40px;font-size:14px">
+        林安在线了。<br>你可以开始跟她聊天。
+      </div>
+    </div>
+    <div id="input-area">
+      <input id="msg-input" type="text" placeholder="给林安发消息..." onkeydown="if(event.key==='Enter')sendMessage()">
+      <button id="send-btn" onclick="sendMessage()">发送</button>
+    </div>
+  </div>
+  <!-- Right: Trace -->
+  <div id="right-panel" class="panel">
+    <div style="color:#999;font-size:13px;text-align:center;padding:20px">
+      Pipeline Trace 将在发送消息后出现
+    </div>
+  </div>
+</div>
+
+<script>
+let ws;
+let currentState = null;
+let stepColors = { appraisal: '#7F77DD', memory_retrieval: '#7F77DD', response_decision: '#7F77DD', reply_generation: '#1D9E75', state_update: '#1D9E75' };
+
+function connect() {
+  const host = location.hostname || 'localhost';
+  const port = location.port || '8765';
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${host}:${port}/ws`);
+  ws.onopen = () => document.getElementById('conn-status').textContent = '已连接';
+  ws.onclose = () => { document.getElementById('conn-status').textContent = '断开，重连中...'; setTimeout(connect, 2000); };
+  ws.onerror = () => document.getElementById('conn-status').textContent = '连接错误';
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state_init' || msg.type === 'state_update') {
+      currentState = msg.data;
+      renderState(msg.data);
+    }
+    if (msg.type === 'pipeline_trace') {
+      renderTrace(msg.data);
+      // Add persona reply to chat
+      addMessage('persona', '林安', msg.data.reply_output.reply, msg.data);
+    }
+    if (msg.type === 'error') {
+      addMessage('persona', '系统', '错误：' + msg.message);
+      document.getElementById('send-btn').disabled = false;
+    }
+  };
+}
+
+function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const content = input.value.trim();
+  if (!content || !ws) return;
+  addMessage('user', 'B', content);
+  input.value = '';
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('right-panel').innerHTML = '<div class="loading">⏳ 正在运行 Pipeline...</div>';
+  ws.send(JSON.stringify({ type: 'send_message', content }));
+  setTimeout(() => { document.getElementById('send-btn').disabled = false; }, 2000);
+}
+
+function addMessage(speaker, name, content, trace) {
+  const div = document.createElement('div');
+  div.className = `msg ${speaker}`;
+  div.innerHTML = `<div class="name">${name}</div><div class="bubble">${content}</div>`;
+  if (trace) div.onclick = () => renderTrace(trace);
+  document.getElementById('messages').appendChild(div);
+  document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+}
+
+function renderState(state) {
+  const p = state.profile;
+  const r = state.runtime;
+  const m = r.derived_mood;
+  let html = `<div class="state-section"><h3>🎭 ${p.name}</h3>
+    <div class="state-item"><span class="label">年龄:</span>${p.age || '?'}</div>
+    <div class="state-item"><span class="label">风格:</span>${p.speaking_style}</div>
+    <div class="state-item" style="margin-top:6px;color:#555;font-size:11px">${p.background}</div>
+  </div>`;
+
+  html += `<div class="state-section"><h3>💡 关切</h3>`;
+  for (const c of state.concerns || []) {
+    const fill = c.valence > 0 ? 'pos' : 'neg';
+    html += `<div class="concern-card">
+      <div class="title">${c.title} <span style="font-size:10px;color:#999">${c.status}</span></div>
+      <div class="meta">强度: <span class="meter"><span class="meter-fill ${fill}" style="width:${c.intensity*100}%"></span></span> ${c.intensity.toFixed(2)} | valence: ${c.valence.toFixed(2)}</div>
+    </div>`;
+  }
+  html += '</div>';
+
+  html += `<div class="state-section"><h3>👥 关系</h3>`;
+  for (const [id, rel] of Object.entries(state.relationships || {})) {
+    html += `<div class="state-item"><span class="label">${rel.target_name}:</span> 亲密度${rel.familiarity.toFixed(1)} 信任${rel.trust.toFixed(1)} 好感${rel.affection.toFixed(1)}</div>`;
+  }
+  html += '</div>';
+
+  html += `<div class="state-section"><h3>⚡ 运行状态</h3>
+    <div class="state-item"><span class="label">心情:</span>${m.label} (valence:${m.valence.toFixed(1)})</div>
+    <div class="state-item"><span class="label">精力:</span>${r.energy.toFixed(1)}</div>
+    <div class="state-item"><span class="label">注意力:</span>${r.attention_focus || '无焦点'}</div>
+  </div>`;
+
+  if (state.scene) {
+    html += `<div class="state-section"><h3>📍 场景</h3>
+      <div class="state-item">${state.scene.title}</div>
+      <div class="state-item" style="font-size:11px;color:#666">${state.scene.description}</div>
+    </div>`;
+  }
+
+  document.getElementById('left-panel').innerHTML = html;
+}
+
+function renderTrace(trace) {
+  const steps = [
+    { key: 'event', label: '📦 Event 事件输入', data: trace.event },
+    { key: 'appraisal', label: '🧠 Appraisal 路由', data: trace.appraisal },
+    { key: 'memory_recall', label: '📖 Memory Recall 记忆召回', data: trace.memory_recall },
+    { key: 'decision', label: '🎯 Response Decision 决策', data: trace.decision },
+    { key: 'expression_context', label: '✍️ Prompt Generator（喂给 Reply LLM 的内容）', data: { prompt: trace.expression_context?.prompt } },
+    { key: 'reply_output', label: '💬 Reply LLM 输出', data: trace.reply_output },
+    { key: 'state_update', label: '🔄 State Update 状态更新', data: trace.state_update },
+    { key: 'state_delta', label: '✅ State Delta 最终写回', data: trace.state_delta },
+  ];
+
+  let html = '';
+  for (const step of steps) {
+    const color = stepColors[step.key] || '#888';
+    html += `<div class="trace-step open" onclick="this.classList.toggle('open')">
+      <div class="step-header" style="border-left:3px solid ${color}">${step.label}</div>
+      <div class="step-body"><pre>${JSON.stringify(step.data, null, 2)}</pre></div>
+    </div>`;
+  }
+  document.getElementById('right-panel').innerHTML = html;
+}
+
+function resetState() {
+  if (ws) ws.send(JSON.stringify({ type: 'reset' }));
+  document.getElementById('messages').innerHTML = '<div style="text-align:center;color:#999;padding:40px">状态已重置。林安重新上线。</div>';
+}
+
+connect();
+</script>
+</body>
+</html>
